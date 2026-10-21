@@ -625,7 +625,12 @@ def show_task6():
         with col3:
             imbalance_ratio = st.slider("Class Imbalance", 0.1, 0.5, 0.3, step=0.05)
         
+        # Remember the click: Streamlit reruns the script on every interaction,
+        # so the nested "Run Preprocessing" button would otherwise reset this block
         if st.button("Generate & Preprocess Dataset", type="primary"):
+            st.session_state['task6_generated'] = True
+
+        if st.session_state.get('task6_generated'):
             with st.spinner("Generating complex dataset..."):
                 # Generate dataset
                 df = create_complex_synthetic_dataset(
