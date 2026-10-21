@@ -14,7 +14,9 @@ def clean_text(line: str) -> str:
         str: The cleaned line of text.
     """
     # Replace non-breaking spaces and other non-ASCII characters
-    pass
+    line = line.replace("\u00a0", " ")
+    line = line.encode("ascii", errors="ignore").decode("ascii")
+    return line.strip()
 
 
 def extract_weather_data(text_file: str) -> List[Dict[str, any]]:
@@ -30,7 +32,27 @@ def extract_weather_data(text_file: str) -> List[Dict[str, any]]:
     Raises:
         FileNotFoundError: If the text file does not exist.
     """
-    pass
+    pattern = re.compile(
+        r"Date:\s*(\d{4}-\d{2}-\d{2}),\s*"
+        r"Max Temp:\s*(-?\d+(?:\.\d+)?)C,\s*"
+        r"Min Temp:\s*(-?\d+(?:\.\d+)?)C,\s*"
+        r"Humidity:\s*(\d+)%,\s*"
+        r"Precipitation:\s*(\d+(?:\.\d+)?)mm"
+    )
+
+    data = []
+    with open(text_file, "r", encoding="utf-8") as f:
+        for line in f:
+            match = pattern.search(clean_text(line))
+            if match:
+                data.append({
+                    "date": match.group(1),
+                    "max_temperature": float(match.group(2)),
+                    "min_temperature": float(match.group(3)),
+                    "humidity": int(match.group(4)),
+                    "precipitation": float(match.group(5))
+                })
+    return data
 
 
 def save_to_csv(data: List[Dict[str, any]], filename: str = "extracted_weather_data.csv") -> None:
@@ -45,7 +67,15 @@ def save_to_csv(data: List[Dict[str, any]], filename: str = "extracted_weather_d
         IOError: If there is an error writing to the file.
     """
     headers = ["Date", "Max Temperature", "Min Temperature", "Humidity", "Precipitation"]
-    pass
+    try:
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            for day in data:
+                writer.writerow([day["date"], day["max_temperature"], day["min_temperature"],
+                                 day["humidity"], day["precipitation"]])
+    except IOError as e:
+        raise IOError(f"Error writing to file '{filename}': {e}")
 
 
 if __name__ == "__main__":

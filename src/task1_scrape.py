@@ -1,3 +1,4 @@
+import re
 import requests
 from bs4 import BeautifulSoup
 from typing import Dict
@@ -22,7 +23,10 @@ def fetch_wikipedia_page(url: str) -> str:
         requests.HTTPError: If the HTTP request returned an unsuccessful status code.
         requests.RequestException: If there was a network error.
     """
-    pass
+    headers = {"User-Agent": "Mozilla/5.0 (DS-Lab-1 educational scraper)"}
+    response = requests.get(url, headers=headers, timeout=10)
+    response.raise_for_status()
+    return response.text
 
 
 def extract_title(soup: BeautifulSoup) -> str:
@@ -35,7 +39,10 @@ def extract_title(soup: BeautifulSoup) -> str:
     Returns:
         str: The title of the page.
     """
-    pass
+    heading = soup.find("h1", id="firstHeading")
+    if heading is None:
+        raise ValueError("Title element <h1 id='firstHeading'> not found.")
+    return heading.get_text(strip=True)
 
 
 def extract_first_sentence(soup: BeautifulSoup) -> str:
@@ -48,7 +55,15 @@ def extract_first_sentence(soup: BeautifulSoup) -> str:
     Returns:
         str: The first sentence of the first paragraph.
     """
-    pass
+    for paragraph in soup.find_all("p"):
+        # Remove citation markers like [1] and normalize whitespace
+        text = re.sub(r"\[\d+\]", "", paragraph.get_text())
+        text = " ".join(text.split())
+        if text:
+            # A sentence ends with . ! or ? followed by whitespace or end of text
+            match = re.match(r"(.+?[.!?])(\s|$)", text)
+            return match.group(1) if match else text
+    raise ValueError("No non-empty paragraph found.")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,20 @@ def summarize_weather_data(data: List[Dict[str, any]]) -> Dict[str, float]:
     Returns:
         dict: A summary of the key metrics across all days.
     """
-    pass
+    if not data:
+        raise ValueError("No weather data to summarize.")
+
+    count = len(data)
+    return {
+        "average_max_temp": sum(d["max_temperature"] for d in data) / count,
+        "average_min_temp": sum(d["min_temperature"] for d in data) / count,
+        "total_precipitation": sum(d["precipitation"] for d in data),
+        "average_wind_speed": sum(d["wind_speed"] for d in data) / count,
+        "average_humidity": sum(d["humidity"] for d in data) / count,
+        "hot_days": sum(1 for d in data if d["max_temperature"] > 30),
+        "windy_days": sum(1 for d in data if d["wind_speed"] > 15),
+        "rainy_days": sum(1 for d in data if d["precipitation"] > 0)
+    }
 
 
 def export_to_csv(data: List[Dict[str, any]], file: Union[str, TextIO]) -> None:
@@ -37,7 +50,26 @@ def export_to_csv(data: List[Dict[str, any]], file: Union[str, TextIO]) -> None:
         Args:
             writer (csv.DictWriter): The CSV writer object.
         """
-        pass
+        writer.writeheader()
+        for day in data:
+            writer.writerow({
+                "Date": day["date"],
+                "Max Temperature": day["max_temperature"],
+                "Min Temperature": day["min_temperature"],
+                "Precipitation": day["precipitation"],
+                "Wind Speed": day["wind_speed"],
+                "Humidity": day["humidity"],
+                "Weather Description": day["weather_description"],
+                "Is Hot Day": day["max_temperature"] > 30,
+                "Is Windy Day": day["wind_speed"] > 15,
+                "Is Rainy Day": day["precipitation"] > 0
+            })
+
+    if isinstance(file, str):
+        with open(file, "w", newline="", encoding="utf-8") as f:
+            write_data(csv.DictWriter(f, fieldnames=headers))
+    else:
+        write_data(csv.DictWriter(file, fieldnames=headers))
 
 
 if __name__ == "__main__":
