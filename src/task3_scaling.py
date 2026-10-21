@@ -62,66 +62,108 @@ class ScalingAnalyzer:
         self.target_col = target_col
         self.scaled_datasets = {}
         self.scalers = {}
-        
+
+    def _feature_columns(self) -> List[str]:
+        """Numeric columns that should be scaled (everything numeric except the target)."""
+        numeric_cols = self.data.select_dtypes(include=[np.number]).columns
+        return [col for col in numeric_cols if col != self.target_col]
+
+    def _apply_scaler(self, name: str, scaler) -> pd.DataFrame:
+        """
+        Fit a scaler on the feature columns, store it and the scaled dataset.
+
+        Parameters:
+            name (str): Key used in scaled_datasets and scalers
+            scaler: Unfitted sklearn scaler/transformer
+
+        Returns:
+            pd.DataFrame: Copy of the data with scaled feature columns (target untouched).
+        """
+        scaled = self.data.copy()
+        feature_cols = self._feature_columns()
+
+        if feature_cols:
+            # sklearn scalers ignore NaN when fitting and keep NaN in the output
+            scaled[feature_cols] = scaler.fit_transform(self.data[feature_cols])
+
+        self.scalers[name] = scaler
+        self.scaled_datasets[name] = scaled
+        return scaled
+
     def apply_minmax_scaling(self, feature_range: Tuple[float, float] = (0, 1)) -> pd.DataFrame:
         """
         Apply Min-Max scaling to rescale features to a fixed range.
-        
+
         Parameters:
             feature_range (Tuple[float, float], optional): Desired range of transformed data. Defaults to (0, 1).
-            
+
         Returns:
             pd.DataFrame: DataFrame with features scaled to specified range.
         """
-        pass
-    
+        return self._apply_scaler('minmax', MinMaxScaler(feature_range=feature_range))
+
     def apply_standard_scaling(self) -> pd.DataFrame:
         """
         Apply Z-score normalization (standardization) to have mean=0 and std=1.
-        
+
         Returns:
             pd.DataFrame: DataFrame with standardized features.
         """
-        pass
-    
+        return self._apply_scaler('standard', StandardScaler())
+
     def apply_robust_scaling(self) -> pd.DataFrame:
         """
         Apply Robust scaling using median and IQR (effective for outliers).
-        
+
         Returns:
             pd.DataFrame: DataFrame with robust scaled features.
         """
-        pass
-    
+        return self._apply_scaler('robust', RobustScaler())
+
     def apply_maxabs_scaling(self) -> pd.DataFrame:
         """
         Apply MaxAbs scaling to scale by maximum absolute value.
-        
+
         Returns:
             pd.DataFrame: DataFrame with maxabs scaled features.
         """
-        pass
-    
+        return self._apply_scaler('maxabs', MaxAbsScaler())
+
     def apply_power_transform(self, method: str = 'yeo-johnson') -> pd.DataFrame:
         """
         Apply power transformation to make data more Gaussian-like.
-        
+
         Parameters:
             method (str, optional): Transformation method ('yeo-johnson' or 'box-cox'). Defaults to 'yeo-johnson'.
-            
+
         Returns:
             pd.DataFrame: DataFrame with power transformed and standardized features.
         """
-        pass
-    
+        if method == 'box-cox':
+            # Box-Cox only works with strictly positive values
+            feature_cols = self._feature_columns()
+            if feature_cols and (self.data[feature_cols] <= 0).any().any():
+                print("Box-Cox requires strictly positive data; falling back to Yeo-Johnson")
+                method = 'yeo-johnson'
+
+        return self._apply_scaler('power', PowerTransformer(method=method, standardize=True))
+
     def get_scaling_summary(self) -> pd.DataFrame:
         """
         Get summary statistics for each scaling method.
-        
+
         Returns:
             DataFrame with statistics for each scaling method
         """
-        pass
+        feature_cols = self._feature_columns()
+        stats = ['mean', 'std', 'min', 'max']
+
+        summary = {'original': self.original_data[feature_cols].agg(stats).T}
+        for name, scaled_df in self.scaled_datasets.items():
+            summary[name] = scaled_df[feature_cols].agg(stats).T
+
+        # Rows: features, columns: (method, statistic)
+        return pd.concat(summary, axis=1)
     
     def evaluate_model_performance(self, model_type: str = 'linear_regression',
                                    dataset_name: str = 'original') -> Dict[str, float]:
@@ -135,7 +177,39 @@ class ScalingAnalyzer:
         Returns:
             Dict[str, float]: Dictionary containing cv_score and cv_std.
         """
-        pass
+        if dataset_name == 'original':
+            df = self.original_data
+        elif dataset_name in self.scaled_datasets:
+            df = self.scaled_datasets[dataset_name]
+        else:
+            raise ValueError(f"Dataset '{dataset_name}' not found. "
+                             f"Available: ['original'] + {list(self.scaled_datasets)}")
+
+        if not self.target_col or self.target_col not in df.columns:
+            raise ValueError("A target column is required for model evaluation")
+
+        models = {
+            'linear_regression': (LinearRegression(), 'r2'),
+            'knn': (KNeighborsClassifier(n_neighbors=5), 'accuracy'),
+            'svm': (SVC(kernel='rbf', random_state=42), 'accuracy'),
+            'neural_network': (MLPClassifier(hidden_layer_sizes=(50,), max_iter=500,
+                                             random_state=42), 'accuracy')
+        }
+        if model_type not in models:
+            raise ValueError(f"Unknown model type '{model_type}'. Choose from {list(models)}")
+        model, scoring = models[model_type]
+
+        clean = df[self._feature_columns() + [self.target_col]].dropna()
+        X = clean.drop(columns=[self.target_col])
+        y = clean[self.target_col]
+
+        scores = cross_val_score(model, X, y, cv=min(5, len(clean)), scoring=scoring)
+
+        return {
+            'cv_score': float(scores.mean()),
+            'cv_std': float(scores.std()),
+            'metric': scoring
+        }
     
     def compare_model_performance(self, model_types: List[str] = None) -> pd.DataFrame:
         """
@@ -255,7 +329,10 @@ class ScalingAnalyzer:
                 data_to_plot.append(scaled_df[feature].dropna())
                 labels.append(method_name.upper())
             
-            bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True)
+            # Labels are set separately: boxplot(labels=...) was removed in Matplotlib 3.11
+            bp = ax.boxplot(data_to_plot, patch_artist=True)
+            ax.set_xticks(range(1, len(labels) + 1))
+            ax.set_xticklabels(labels)
             
             # Color the boxes
             colors = ['skyblue'] + ['lightcoral'] * len(self.scaled_datasets)

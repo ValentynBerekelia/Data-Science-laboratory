@@ -230,22 +230,48 @@ class PreprocessingPipeline:
         steps = []
         
         # Step 1: Imputation
-        pass
-        
-        # Step 2: Outlier handling
-        pass
-        
+        if imputer_strategy == 'knn':
+            imputer = KNNImputer(n_neighbors=5)
+        elif imputer_strategy in ('mean', 'median', 'most_frequent'):
+            imputer = SimpleImputer(strategy=imputer_strategy)
+        else:
+            raise ValueError(f"Unknown imputer strategy '{imputer_strategy}'")
+        steps.append(('imputer', imputer))
+
+        # Step 2: Outlier handling (capping keeps all rows, so no NaN reappears after imputation)
+        if outlier_method == 'iqr':
+            outlier_handler = OutlierHandler(method='iqr', strategy='cap', threshold=1.5)
+        elif outlier_method == 'zscore':
+            outlier_handler = OutlierHandler(method='zscore', strategy='cap', threshold=3.0)
+        else:
+            raise ValueError(f"Unknown outlier method '{outlier_method}'")
+        steps.append(('outlier_handler', outlier_handler))
+
         # Step 3: Feature engineering
-        pass
-        
+        if feature_engineering:
+            steps.append(('feature_engineer', FeatureEngineer(interactions=True,
+                                                              polynomials=False,
+                                                              transformations=True)))
+
         # Step 4: Scaling
-        pass
-        
+        scalers = {
+            'standard': StandardScaler(),
+            'robust': RobustScaler(),
+            'minmax': MinMaxScaler()
+        }
+        if scaler_type not in scalers:
+            raise ValueError(f"Unknown scaler type '{scaler_type}'")
+        steps.append(('scaler', scalers[scaler_type]))
+
         # Step 5: Feature selection
-        pass
-        
+        if feature_selection:
+            # Values read back from a comparison DataFrame may arrive as float/NaN
+            n_features = 20 if pd.isna(n_features) else int(n_features)
+            steps.append(('feature_selector', SelectKBest(score_func=f_classif, k=n_features)))
+
         # Step 6: Classifier
-        pass
+        steps.append(('classifier', LogisticRegression(max_iter=1000,
+                                                       random_state=self.random_state)))
         
         self.pipeline = Pipeline(steps)
         return self.pipeline
@@ -580,10 +606,13 @@ class PreprocessingPipeline:
         """
         fig, ax = plt.subplots(figsize=figsize)
         
-        bp = ax.boxplot([cv_scores], labels=['CV Scores'], patch_artist=True,
+        # Labels are set separately: boxplot(labels=...) was removed in Matplotlib 3.11
+        bp = ax.boxplot([cv_scores], patch_artist=True,
                        boxprops=dict(facecolor='lightblue'),
                        medianprops=dict(color='red', linewidth=2),
                        widths=0.5)
+        ax.set_xticks([1])
+        ax.set_xticklabels(['CV Scores'])
         
         # Add individual points
         ax.scatter([1] * len(cv_scores), cv_scores, color='darkblue', 
